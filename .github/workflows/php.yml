@@ -1,26 +1,83 @@
-name: My First GitHub Actions
+name: Magento CI/CD
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
 
 jobs:
-  build:
+  magento-ci:
     runs-on: ubuntu-latest
 
-    strategy:
-      matrix:
-        python-version: [3.8, 3.9]
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: magento
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=5
 
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Checkout source
+        uses: actions/checkout@v3
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pytest
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, intl, bcmath, mysql
+          tools: composer:v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Composer packages
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install NPM dependencies (optional)
+        run: |
+          cd app/design/frontend/<YourVendor>/<YourTheme>
+          npm install
+          npm run build # or gulp if you're using gulp
+
+      - name: Setup Magento
+        run: |
+          php bin/magento setup:install \
+            --base-url=http://localhost \
+            --db-host=127.0.0.1 \
+            --db-name=magento \
+            --db-user=root \
+            --db-password=root \
+            --admin-firstname=Admin \
+            --admin-lastname=User \
+            --admin-email=admin@example.com \
+            --admin-user=admin \
+            --admin-password=admin123 \
+            --language=en_US \
+            --currency=USD \
+            --timezone=UTC \
+            --use-rewrites=1
+
+      - name: Compile & Deploy Static Assets
+        run: |
+          php bin/magento setup:di:compile
+          php bin/magento setup:static-content:deploy -f
+
+      - name: Run Tests (Optional)
+        run: vendor/bin/phpunit
+
+      # Optional deployment step (customize based on server access)
+      # - name: Deploy
+      #   run: scp -r ./ your-user@your-server:/var/www/html/magento
+
 
     - name: Run tests
       run: |
